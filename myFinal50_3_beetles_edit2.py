@@ -40,7 +40,7 @@ class Delegate(btle.DefaultDelegate):
             if global_delegate_obj[idx] == self:
                 print("receiving data from %s" % (beetle_addresses[idx]))
 
-                print ("length of packet is...")
+                #print ("length of packet is...")
 
                 packet = data
 
@@ -48,7 +48,7 @@ class Delegate(btle.DefaultDelegate):
 
                 size = len(packet)
                 
-                print (size)
+                #print (size)
 
                 processData = False
 
@@ -93,17 +93,17 @@ class Delegate(btle.DefaultDelegate):
                             packet = struct.unpack("<hhLLhhL", packet)
                             #print ("here2b")
                             packetUnpacked = True
-                            print ("unpack is complete ")
-                            print ("packet is")
-                            print (packet)
+                            #print ("unpack is complete ")
+                            #print ("packet is")
+                            #print (packet)
                             #print ("unpack is complete ")
                         # imu data packet
                         elif packetType == 1:
                             packet = struct.unpack("<hhhhhhhhhh", packet)
                             packetUnpacked = True
-                            print ("unpack is complete ")
-                            print ("packet is")
-                            print (packet)
+                            #print ("unpack is complete ")
+                            #print ("packet is")
+                            #print (packet)
                             #print ("unpack is complete ")
                     except Exception as e: 
                         print ("here3")
@@ -146,6 +146,7 @@ class Delegate(btle.DefaultDelegate):
                                     accx = float("{0:.4f}".format(packet[4] / 8192))
                                     accy = float("{0:.4f}".format(packet[5] / 8192))
                                     accz = float("{0:.4f}".format(packet[6] / 8192))
+                                    
 
                                     if (idx == 0):
 
@@ -155,19 +156,7 @@ class Delegate(btle.DefaultDelegate):
                                             file.close()
                                             print ("writing is complete")
 
-                                    elif (idx == 1):
-                                    
-                                        with open(r'data2.txt', 'a') as file:
-                                            print ("writing data values")
-                                            file.write(json.dumps(yaw) + " " + json.dumps(pitch) + " " + json.dumps(roll) + " " + json.dumps(accx) + " " + json.dumps(accy) + " " + json.dumps(accz) + "\n")
-                                            file.close()
-                                    elif (idx == 2):
-
-                                        with open(r'data3.txt', 'a') as file:
-                                            print ("writing data values")
-                                            file.write(json.dumps(yaw) + " " + json.dumps(pitch) + " " + json.dumps(roll) + " " + json.dumps(accx) + " " + json.dumps(accy) + " " + json.dumps(accz) + "\n")
-                                            file.close()
-
+                               
                                 except Exception as e:
                                     print ("exception 2")
                                     print (e)
@@ -402,7 +391,7 @@ if __name__ == '__main__':
     
     # global variables
    
-    beetle_addresses = ["80:30:DC:E9:25:07", "34:B1:F7:D2:35:97", "34:B1:F7:D2:35:9D"]
+    beetle_addresses = ["80:30:DC:E9:25:07"]
     #global total_connected_devices
     #total_connected_devices = 0
 
@@ -413,12 +402,12 @@ if __name__ == '__main__':
     global_beetle = []
 
     # used to notify if sync data is available
-    clocksync_flag_dict = {"80:30:DC:E9:25:07": False, "34:B1:F7:D2:35:97": False, "34:B1:F7:D2:35:9D": False}
+    clocksync_flag_dict = {"80:30:DC:E9:25:07": False}
     # used to hold laptop and beetle receive and send time
-    timestamp_dict = {"80:30:DC:E9:25:07": [], "34:B1:F7:D2:35:97": [], "34:B1:F7:D2:35:9D": []}
+    timestamp_dict = {"80:30:DC:E9:25:07": []}
     # used to hold clock offset values
-    clock_offset_dict = {"80:30:DC:E9:25:07": [], "34:B1:F7:D2:35:97": [], "34:B1:F7:D2:35:9D": []}
-    buffer = {"80:30:DC:E9:25:07": b'', "34:B1:F7:D2:35:97": b'', "34:B1:F7:D2:35:9D": b''}
+    clock_offset_dict = {"80:30:DC:E9:25:07": []}
+    buffer = {"80:30:DC:E9:25:07": b''}
 
     [global_delegate_obj.append(0) for idx in range(len(beetle_addresses))]
     [global_beetle.append(0) for idx in range(len(beetle_addresses))]
@@ -433,8 +422,8 @@ if __name__ == '__main__':
     beetle3 = "34:B1:F7:D2:35:9D"
     
     establish_connection(beetle1)
-    establish_connection(beetle2)
-    establish_connection(beetle3)
+    #establish_connection(beetle2)
+    #establish_connection(beetle3)
 
     start_time = time.time()
 
