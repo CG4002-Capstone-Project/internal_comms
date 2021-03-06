@@ -9,11 +9,42 @@ import operator  # to get most predicted label
 import json
 import random  # RNG in worst case
 import struct
-
+import dnn_utils
+import cnn_utils 
+import argparse
 #mac1: "34:B1:F7:D2:35:9D"
 #mac2: 8030DCE92507
 
+parser = argparse.ArgumentParser(description="BLE")
+parser.add_argument("--debug", default=False, help="debug mode")
+parser.add_argument("--model_type", help="cnn or dnn model")
+parser.add_argument("--model_path", help="path to model")
+parser.add_argument("--scaler_path", help="path to scaler")
 
+args = parser.parse_args()
+debug = args.debug
+model_type = args.model_type
+model_path = args.model_path
+scaler_path = args.scaler_path
+print(debug, model_type, model_path, scaler_path)
+
+activities = ["hair", "listen", "sidepump", "dab", "wipe", "gun", "elbow", "pointhigh"]
+
+if debug:
+    # Load model
+    if model_type == "cnn"
+        model = cnn_utils.CNN()
+        model.load_state_dict(torch.load(model_path))
+        model.eval()
+    elif model_type == "dnn"
+        model = dnn_utils.DNN()
+        model.load_state_dict(torch.load(model_path))
+        model.eval()
+    else:
+        raise Exception("Model is not supported")
+
+    # Load scaler
+    scaler = load(scaler_path)
 
 class UUIDS:
     SERIAL_COMMS = btle.UUID("0000dfb1-0000-1000-8000-00805f9b34fb")
@@ -33,6 +64,13 @@ class Delegate(btle.DefaultDelegate):
 
     def __init__(self, params):
         btle.DefaultDelegate.__init__(self)
+        #yaw pitch roll accx accy accz
+        self.yaws = list()
+        self.pitchs = list()
+        self.rolls = list()
+        self.accxs = list()
+        self.accys = list()
+        self.acczs = list()
 
     def handleNotification(self, cHandle, data):
     
@@ -149,6 +187,13 @@ class Delegate(btle.DefaultDelegate):
                                     
 
                                     if (idx == 0):
+                                        if debug:
+                                            self.yaws.append(yaw)
+                                            self.pitchs.append(pitch)
+                                            self.rolls.append(roll)
+                                            self.accxs.append(accx)
+                                            self.accys.append(accy)
+                                            self.acczs.append(accz)
 
                                         with open(r'data1.txt', 'a') as file:
                                             print ("writing data values")
@@ -165,6 +210,15 @@ class Delegate(btle.DefaultDelegate):
 
                 else:
                     pass
+
+    def reset_inputs(self):
+        self.yaws = list()
+        self.pitchs = list()
+        self.rolls = list()
+        self.accxs = list()
+        self.accys = list()
+        self.acczs = list()
+
 
 def verifytimechecksum(data):
     print ("doing checksum verification")
@@ -374,6 +428,43 @@ def getDanceData(beetle):
                     #print ("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
                     global_beetle[beetle.addr] = 0
                     reestablish_connection(beetle)
+
+            # Perform inference if debug is true
+            yaws = beetle.yaws, 
+            pitchs = beetle.pitchs, 
+            rolls = beetle.rolls, 
+            accxs = beetle.accxs
+            accys = beetle.accys
+            acczs = beetle.acczs
+
+            n_readings = 90
+            start_time_step = 30
+            num_time_steps = 60
+            if len(yaws) > n_readings and len(pitchs) > n_readings and len(rolls) > n_readings and len(accxs) > n_readings and len(accys) > n_readings and len(acczs):
+                #yaw pitch roll accx accy accz
+                inputs = np.array(
+                    [
+                        yaws[start_time_step:start_time_step+num_time_steps], 
+                        pitchs[start_time_step:start_time_step+num_time_steps], 
+                        rolls[start_time_step:start_time_step+num_time_steps], 
+                        accxs[start_time_step:start_time_step+num_time_steps], 
+                        accys[start_time_step:start_time_step+num_time_steps], 
+                        acczs[start_time_step:start_time_step+num_time_steps]
+                    ]
+                )
+                if model_type == "cnn":
+                    inputs = cnn_utils.scale_data(inputs, scaler)  # scale features
+                elif model_type == "dnn"
+                    inputs = dnn_utils.extract_raw_data_features(inputs)  # extract features
+                    inputs = dnn_utils.scale_data(inputs, scaler)  # scale features
+                else:
+                    raise Exception("Model is not supported")
+
+                inputs = torch.tensor(inputs)  # convert to tensor
+                outputs = model(inputs.float())
+                _, predicted = torch.max(outputs.data, 1)
+                print("Predicted dance move:", activities[predicted])
+                beetle.reset_inputs()
 
         #except btle.BTLEDisconnectError:
             #total_connected_devices -= 1
