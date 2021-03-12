@@ -1,48 +1,94 @@
 import argparse
+import base64
 import concurrent
 import json
+import socket
 import struct
+import threading
 import time
 import traceback
 
 import numpy as np
 import torch
 from bluepy import btle
+from Crypto import Random
+from Crypto.Cipher import AES
 from joblib import load
 
 import dnn_utils
 import svc_utils
 
-parser = argparse.ArgumentParser(description="BLE")
-parser.add_argument("--debug", default=False, help="debug mode")
-parser.add_argument("--train", default=False, help="train mode")
-parser.add_argument("--model_type", help="svc or dnn model")
-parser.add_argument("--model_path", help="path to model")
-parser.add_argument("--scaler_path", help="path to scaler")
+PORT_NUM = [9091, 9092, 9093]
 
-args = parser.parse_args()
-debug = args.debug
-train = args.train
-model_type = args.model_type
-model_path = args.model_path
-scaler_path = args.scaler_path
-print(debug, model_type, model_path, scaler_path)
 
-activities = ["dab", "gun", "elbow"]
+BUFFER = []  # The buffer to store the message from the beetles
 
-if debug:
-    # Load scaler
-    scaler = load(scaler_path)
+ENCRYPT_BLOCK_SIZE = 16
 
-    # Load model
-    if model_type == "svc":
-        model = load(model_path)
-    elif model_type == "dnn":
-        model = dnn_utils.DNN()
-        model.load_state_dict(torch.load(model_path))
-        model.eval()
-    else:
-        raise Exception("Model is not supported")
+
+class Client(threading.Thread):
+    def __init__(self, ip_addr, port_num, group_id, key):
+        super(Client, self).__init__()
+
+        self.idx = 0
+        self.timeout = 60
+        self.has_no_response = False
+        self.connection = None
+        self.timer = None
+        self.logout = False
+
+        self.group_id = group_id
+        self.key = key
+
+        self.dancer_positions = ["1", "2", "3"]
+
+        # Create a TCP/IP socket and bind to port
+        self.shutdown = threading.Event()
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_address = (ip_addr, port_num)
+
+        # print('Start connecting... server address: %s port: %s' % server_address, file=sys.stderr)
+        print("Start connecting>>>>>>>>>>>>")
+        self.socket.connect(server_address)
+        print("Connected")
+
+    # To encrypt the message, which is a string
+    def encrypt_message(self, message):
+        raw_message = "#" + message
+        # print("raw_message: "+raw_message)
+        padded_raw_message = raw_message + " " * (
+            ENCRYPT_BLOCK_SIZE - (len(raw_message) % ENCRYPT_BLOCK_SIZE)
+        )
+        # print("padded_raw_message: " + padded_raw_message)
+        iv = Random.new().read(AES.block_size)
+        secret_key = bytes(str(self.key), encoding="utf8")
+        cipher = AES.new(secret_key, AES.MODE_CBC, iv)
+        encrypted_message = base64.b64encode(
+            iv + cipher.encrypt(bytes(padded_raw_message, "utf8"))
+        )
+        # print("encrypted_message: ", encrypted_message)
+        return encrypted_message
+
+    # To send the message to the sever
+    def send_message(self, message):
+        encrypted_message = self.encrypt_message(message)
+        # print("Sending message:", encrypted_message)
+        self.socket.sendall(encrypted_message)
+
+    def receive_dancer_position(self):
+        dancer_position = self.socket.recv(1024)
+        msg = dancer_position.decode("utf8")
+        return msg
+
+    def receive_timestamp(self):
+        timestamp = self.socket.recv(1024)
+        msg = timestamp.decode("utf8")
+        return msg
+
+    def stop(self):
+        self.connection.close()
+        self.shutdown.set()
+        self.timer.cancel()
 
 
 class UUIDS:
@@ -57,7 +103,8 @@ class Delegate(btle.DefaultDelegate):
 
         for idx in range(len(beetle_addresses)):
             if global_delegate_obj[idx] == self:
-                print("receiving data from %s" % (beetle_addresses[idx]))
+                if verbose:
+                    print("receiving data from %s" % (beetle_addresses[idx]))
                 packet = data
                 address = beetle_addresses[idx]
                 size = len(packet)
@@ -78,8 +125,6 @@ class Delegate(btle.DefaultDelegate):
 
                     buffer[address] = b""
 
-                    print("starting to process the data")
-
                     packetUnpacked = False
 
                     laptop_receiving_timestamp = time.time()
@@ -90,12 +135,14 @@ class Delegate(btle.DefaultDelegate):
                         if packetType == 0:
                             packet = struct.unpack("<hhLLhhL", packet)
                             packetUnpacked = True
-                            print(packet)
+                            if verbose:
+                                print(packet)
                         # imu data packet
                         elif packetType > 0:
                             packet = struct.unpack("<hhhhhhhhhh", packet)
                             packetUnpacked = True
-                            print(packet)
+                            if verbose:
+                                print(packet)
                     except Exception:
                         print(traceback.format_exc())
 
@@ -135,11 +182,25 @@ class Delegate(btle.DefaultDelegate):
                                     accz = float("{0:.4f}".format(packet[6] / 8192))
 
                                     if idx == 0:
+                                        if production:
+                                            BUFFER.append(
+                                                str(yaw)
+                                                + " "
+                                                + str(pitch)
+                                                + " "
+                                                + str(roll)
+                                                + " "
+                                                + str(accx)
+                                                + " "
+                                                + str(accy)
+                                                + " "
+                                                + str(accz)
+                                            )
                                         if debug:
                                             raw_data[address].append(
                                                 (yaw, pitch, roll, accx, accy, accz)
                                             )
-                                        if train:
+                                        if collect:
                                             with open(r"data1.txt", "a") as file:
                                                 print("writing data values")
                                                 file.write(
@@ -160,7 +221,7 @@ class Delegate(btle.DefaultDelegate):
                                                 print("writing is complete")
 
                                     elif idx == 1:
-                                        if train:
+                                        if collect:
                                             with open(r"data2.txt", "a") as file:
                                                 print("writing data values")
                                                 file.write(
@@ -179,7 +240,7 @@ class Delegate(btle.DefaultDelegate):
                                                 )
                                                 file.close()
                                     elif idx == 2:
-                                        if train:
+                                        if collect:
                                             with open(r"data3.txt", "a") as file:
                                                 print("writing data values")
                                                 file.write(
@@ -230,7 +291,8 @@ def verifychecksum(data):
         ^ data[9]
     )
     if result == data[7]:
-        print("checksum verification passed")
+        if verbose:
+            print("checksum verification passed")
         return True
     else:
         print("checksum failed")
@@ -394,14 +456,72 @@ def getDanceData(beetle):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Internal Comms")
+    parser.add_argument("--beetle_id", help="beetle id", type=int, required=True)
+    parser.add_argument("--dancer_id", help="dancer id", type=int, required=True)
+    parser.add_argument("--debug", default=False, help="debug mode", type=bool)
+    parser.add_argument("--collect", default=False, help="train mode", type=bool)
+    parser.add_argument(
+        "--production", default=False, help="production mode", type=bool
+    )
+    parser.add_argument("--verbose", default=False, help="verbose", type=bool)
+    parser.add_argument("--model_type", help="svc or dnn model")
+    parser.add_argument("--model_path", help="path to model")
+    parser.add_argument("--scaler_path", help="path to scaler")
+
+    args = parser.parse_args()
+    beetle_id = args.beetle_id
+    dancer_id = args.dancer_id
+    debug = args.debug
+    collect = args.collect
+    production = args.production
+    verbose = args.verbose
+    model_type = args.model_type
+    model_path = args.model_path
+    scaler_path = args.scaler_path
+
+    print("beetle_id:", beetle_id)
+    print("dancer_id:", dancer_id)
+    print("debug:", debug)
+    print("collect:", collect)
+    print("production:", production)
+    print("verbose:", verbose)
+    print("model_type:", model_type)
+    print("model_path:", model_path)
+    print("scaler_path:", scaler_path)
+
+    ip_addr = "127.0.0.1"
+    port_num = PORT_NUM[dancer_id]
+    group_id = "18"
+    key = "1234123412341234"
+    activities = ["dab", "gun", "elbow"]
+
+    if debug:
+        # Load scaler
+        scaler = load(scaler_path)
+
+        # Load model
+        if model_type == "svc":
+            model = load(model_path)
+        elif model_type == "dnn":
+            model = dnn_utils.DNN()
+            model.load_state_dict(torch.load(model_path))
+            model.eval()
+        else:
+            raise Exception("Model is not supported")
+
     # global variables
     beetle1 = "80:30:DC:E9:25:07"
     beetle2 = "34:B1:F7:D2:35:97"
     beetle3 = "34:B1:F7:D2:35:9D"
 
-    beetle_addresses = [beetle2]
-    # global total_connected_devices
-    # total_connected_devices = 0
+    beetle_addresses = list()
+    if beetle_id == 1:
+        beetle_addresses.append(beetle1)
+    if beetle_id == 2:
+        beetle_addresses.append(beetle2)
+    if beetle_id == 3:
+        beetle_addresses.append(beetle3)
 
     divide_ypr = 100
     divide_acc = 8192
@@ -442,35 +562,63 @@ if __name__ == "__main__":
         beetle3: [],
     }
 
-    # establish_connection(beetle1)
-    establish_connection(beetle2)
-    # establish_connection(beetle3)
+    if beetle_id == 1:
+        establish_connection(beetle1)
+    if beetle_id == 2:
+        establish_connection(beetle2)
+    if beetle_id == 3:
+        establish_connection(beetle3)
 
     start_time = time.time()
+    my_client = Client(ip_addr, port_num, group_id, key)
 
-    # start collecting data only after 10s passed
-    counter = 0
-    while True:
-        elapsed_time = time.time() - start_time
-        if int(elapsed_time) >= 10:
-            break
-        else:
-            print(f"Waiting for {counter}s")
-            time.sleep(1)
-            counter += 1
+    print("waiting for 10s")
+    time.sleep(10)
+    print("start")
 
-    dance_move = None
-
+    is_init = True
+    RTT = 0.0
+    offset = 0.0
+    target_beetle = beetle_addresses[0]  # TODO: Change after Week 9
     while True:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as data_executor:
             {
                 data_executor.submit(getDanceData, beetle): beetle
                 for beetle in global_beetle
             }
+            if is_init:
+                raw_data[target_beetle] = list()
+                is_init = False
+                continue
+
+            if production:
+                if len(BUFFER) > 0:
+                    raw_data = BUFFER.pop(0)
+                    t1 = time.time()
+                    message_final = (
+                        str(dancer_id)
+                        + "|"
+                        + str(RTT)
+                        + "|"
+                        + str(offset)
+                        + "|"
+                        + raw_data
+                        + "|"
+                    )
+                    if verbose:
+                        print("raw_data: " + raw_data)
+                        print("message_final: " + message_final)
+
+                    my_client.send_message(message_final)
+                    timestamp = my_client.receive_timestamp()
+                    t4 = time.time()
+                    t2 = float(timestamp.split("|")[0][:18])
+                    t3 = float(timestamp.split("|")[1][:18])
+                    RTT = t4 - t3 + t2 - t1
+                    offset = (t2 - t1) - RTT / 2
+
             if debug:
-                inputs = np.array(raw_data[beetle2])
-                print(inputs.shape)
-                print("Predicted dance move:", dance_move)
+                inputs = np.array(raw_data[target_beetle])
                 n_readings = 90
                 start_time_step = 30
                 num_time_steps = 60
@@ -507,4 +655,5 @@ if __name__ == "__main__":
                         dance_move = activities[predicted]
                     else:
                         raise Exception("Model is not supported")
-                    raw_data[beetle2] = list()
+                    raw_data[target_beetle] = list()
+                    print("Predicted:", dance_move)
