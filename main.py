@@ -579,6 +579,7 @@ if __name__ == "__main__":
     is_init = True
     RTT = 0.0
     offset = 0.0
+    target_beetle = beetle_addresses[0]  # TODO: Change after Week 9
     while True:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as data_executor:
             {
@@ -586,7 +587,7 @@ if __name__ == "__main__":
                 for beetle in global_beetle
             }
             if is_init:
-                raw_data[beetle2] = list()
+                raw_data[target_beetle] = list()
                 is_init = False
                 continue
 
@@ -617,7 +618,7 @@ if __name__ == "__main__":
                     offset = (t2 - t1) - RTT / 2
 
             if debug:
-                inputs = np.array(raw_data[beetle2])
+                inputs = np.array(raw_data[target_beetle])
                 n_readings = 90
                 start_time_step = 30
                 num_time_steps = 60
@@ -654,5 +655,5 @@ if __name__ == "__main__":
                         dance_move = activities[predicted]
                     else:
                         raise Exception("Model is not supported")
-                    raw_data[beetle2] = list()
+                    raw_data[target_beetle] = list()
                     print("Predicted:", dance_move)
