@@ -1,6 +1,7 @@
 import argparse
 import concurrent
 import json
+import random
 import struct
 import time
 import traceback
@@ -12,37 +13,6 @@ from joblib import load
 
 import dnn_utils
 import svc_utils
-
-parser = argparse.ArgumentParser(description="BLE")
-parser.add_argument("--debug", default=False, help="debug mode")
-parser.add_argument("--train", default=False, help="train mode")
-parser.add_argument("--model_type", help="svc or dnn model")
-parser.add_argument("--model_path", help="path to model")
-parser.add_argument("--scaler_path", help="path to scaler")
-
-args = parser.parse_args()
-debug = args.debug
-train = args.train
-model_type = args.model_type
-model_path = args.model_path
-scaler_path = args.scaler_path
-print(debug, model_type, model_path, scaler_path)
-
-activities = ["dab", "gun", "elbow"]
-
-if debug:
-    # Load scaler
-    scaler = load(scaler_path)
-
-    # Load model
-    if model_type == "svc":
-        model = load(model_path)
-    elif model_type == "dnn":
-        model = dnn_utils.DNN()
-        model.load_state_dict(torch.load(model_path))
-        model.eval()
-    else:
-        raise Exception("Model is not supported")
 
 
 class UUIDS:
@@ -57,7 +27,8 @@ class Delegate(btle.DefaultDelegate):
 
         for idx in range(len(beetle_addresses)):
             if global_delegate_obj[idx] == self:
-                print("receiving data from %s" % (beetle_addresses[idx]))
+                if verbose:
+                    print("receiving data from %s" % (beetle_addresses[idx]))
                 packet = data
                 address = beetle_addresses[idx]
                 size = len(packet)
@@ -78,8 +49,6 @@ class Delegate(btle.DefaultDelegate):
 
                     buffer[address] = b""
 
-                    print("starting to process the data")
-
                     packetUnpacked = False
 
                     laptop_receiving_timestamp = time.time()
@@ -90,12 +59,14 @@ class Delegate(btle.DefaultDelegate):
                         if packetType == 0:
                             packet = struct.unpack("<hhLLhhL", packet)
                             packetUnpacked = True
-                            print(packet)
+                            if verbose:
+                                print(packet)
                         # imu data packet
                         elif packetType > 0:
                             packet = struct.unpack("<hhhhhhhhhh", packet)
                             packetUnpacked = True
-                            print(packet)
+                            if verbose:
+                                print(packet)
                     except Exception:
                         print(traceback.format_exc())
 
@@ -139,7 +110,7 @@ class Delegate(btle.DefaultDelegate):
                                             raw_data[address].append(
                                                 (yaw, pitch, roll, accx, accy, accz)
                                             )
-                                        if train:
+                                        if collect:
                                             with open(r"data1.txt", "a") as file:
                                                 print("writing data values")
                                                 file.write(
@@ -160,7 +131,7 @@ class Delegate(btle.DefaultDelegate):
                                                 print("writing is complete")
 
                                     elif idx == 1:
-                                        if train:
+                                        if collect:
                                             with open(r"data2.txt", "a") as file:
                                                 print("writing data values")
                                                 file.write(
@@ -179,7 +150,7 @@ class Delegate(btle.DefaultDelegate):
                                                 )
                                                 file.close()
                                     elif idx == 2:
-                                        if train:
+                                        if collect:
                                             with open(r"data3.txt", "a") as file:
                                                 print("writing data values")
                                                 file.write(
@@ -230,7 +201,8 @@ def verifychecksum(data):
         ^ data[9]
     )
     if result == data[7]:
-        print("checksum verification passed")
+        if verbose:
+            print("checksum verification passed")
         return True
     else:
         print("checksum failed")
@@ -394,14 +366,65 @@ def getDanceData(beetle):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="BLE")
+    parser.add_argument("--beetle_id", help="beetle id", type=int, required=True)
+    parser.add_argument("--debug", default=False, help="debug mode", type=bool)
+    parser.add_argument("--collect", default=False, help="train mode", type=bool)
+    parser.add_argument(
+        "--production", default=False, help="production mode", type=bool
+    )
+    parser.add_argument("--verbose", default=False, help="verbose", type=bool)
+    parser.add_argument("--model_type", help="svc or dnn model")
+    parser.add_argument("--model_path", help="path to model")
+    parser.add_argument("--scaler_path", help="path to scaler")
+
+    args = parser.parse_args()
+    beetle_id = args.beetle_id
+    debug = args.debug
+    collect = args.collect
+    production = args.production
+    verbose = args.verbose
+    model_type = args.model_type
+    model_path = args.model_path
+    scaler_path = args.scaler_path
+
+    print("beetle_id:", beetle_id)
+    print("debug:", debug)
+    print("collect:", collect)
+    print("production:", production)
+    print("verbose:", verbose)
+    print("model_type:", model_type)
+    print("model_path:", model_path)
+    print("scaler_path:", scaler_path)
+
+    activities = ["dab", "gun", "elbow"]
+
+    if debug:
+        # Load scaler
+        scaler = load(scaler_path)
+
+        # Load model
+        if model_type == "svc":
+            model = load(model_path)
+        elif model_type == "dnn":
+            model = dnn_utils.DNN()
+            model.load_state_dict(torch.load(model_path))
+            model.eval()
+        else:
+            raise Exception("Model is not supported")
+
     # global variables
     beetle1 = "80:30:DC:E9:25:07"
     beetle2 = "34:B1:F7:D2:35:97"
     beetle3 = "34:B1:F7:D2:35:9D"
 
-    beetle_addresses = [beetle2]
-    # global total_connected_devices
-    # total_connected_devices = 0
+    beetle_addresses = list()
+    if beetle_id == 1:
+        beetle_addresses.append(beetle1)
+    if beetle_id == 2:
+        beetle_addresses.append(beetle2)
+    if beetle_id == 3:
+        beetle_addresses.append(beetle3)
 
     divide_ypr = 100
     divide_acc = 8192
@@ -442,9 +465,12 @@ if __name__ == "__main__":
         beetle3: [],
     }
 
-    # establish_connection(beetle1)
-    establish_connection(beetle2)
-    # establish_connection(beetle3)
+    if beetle_id == 1:
+        establish_connection(beetle1)
+    if beetle_id == 2:
+        establish_connection(beetle2)
+    if beetle_id == 3:
+        establish_connection(beetle3)
 
     start_time = time.time()
 
@@ -459,18 +485,20 @@ if __name__ == "__main__":
             time.sleep(1)
             counter += 1
 
-    dance_move = None
-
+    print("Start")
+    is_init = True
     while True:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as data_executor:
             {
                 data_executor.submit(getDanceData, beetle): beetle
                 for beetle in global_beetle
             }
+            if is_init:
+                raw_data[beetle2] = list()
+                is_init = False
+                print("Perform:", random.choice(activities))
             if debug:
                 inputs = np.array(raw_data[beetle2])
-                print(inputs.shape)
-                print("Predicted dance move:", dance_move)
                 n_readings = 90
                 start_time_step = 30
                 num_time_steps = 60
@@ -508,3 +536,5 @@ if __name__ == "__main__":
                     else:
                         raise Exception("Model is not supported")
                     raw_data[beetle2] = list()
+                    print("Predicted:", dance_move)
+                    print("Perform:", random.choice(activities))
