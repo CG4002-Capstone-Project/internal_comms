@@ -1,18 +1,94 @@
 import argparse
+import base64
 import concurrent
 import json
-import random
+import socket
 import struct
+import threading
 import time
 import traceback
 
 import numpy as np
 import torch
 from bluepy import btle
+from Crypto import Random
+from Crypto.Cipher import AES
 from joblib import load
 
 import dnn_utils
 import svc_utils
+
+PORT_NUM = [9091, 9092, 9093]
+
+
+BUFFER = []  # The buffer to store the message from the beetles
+
+ENCRYPT_BLOCK_SIZE = 16
+
+
+class Client(threading.Thread):
+    def __init__(self, ip_addr, port_num, group_id, key):
+        super(Client, self).__init__()
+
+        self.idx = 0
+        self.timeout = 60
+        self.has_no_response = False
+        self.connection = None
+        self.timer = None
+        self.logout = False
+
+        self.group_id = group_id
+        self.key = key
+
+        self.dancer_positions = ["1", "2", "3"]
+
+        # Create a TCP/IP socket and bind to port
+        self.shutdown = threading.Event()
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_address = (ip_addr, port_num)
+
+        # print('Start connecting... server address: %s port: %s' % server_address, file=sys.stderr)
+        print("Start connecting>>>>>>>>>>>>")
+        self.socket.connect(server_address)
+        print("Connected")
+
+    # To encrypt the message, which is a string
+    def encrypt_message(self, message):
+        raw_message = "#" + message
+        # print("raw_message: "+raw_message)
+        padded_raw_message = raw_message + " " * (
+            ENCRYPT_BLOCK_SIZE - (len(raw_message) % ENCRYPT_BLOCK_SIZE)
+        )
+        # print("padded_raw_message: " + padded_raw_message)
+        iv = Random.new().read(AES.block_size)
+        secret_key = bytes(str(self.key), encoding="utf8")
+        cipher = AES.new(secret_key, AES.MODE_CBC, iv)
+        encrypted_message = base64.b64encode(
+            iv + cipher.encrypt(bytes(padded_raw_message, "utf8"))
+        )
+        # print("encrypted_message: ", encrypted_message)
+        return encrypted_message
+
+    # To send the message to the sever
+    def send_message(self, message):
+        encrypted_message = self.encrypt_message(message)
+        # print("Sending message:", encrypted_message)
+        self.socket.sendall(encrypted_message)
+
+    def receive_dancer_position(self):
+        dancer_position = self.socket.recv(1024)
+        msg = dancer_position.decode("utf8")
+        return msg
+
+    def receive_timestamp(self):
+        timestamp = self.socket.recv(1024)
+        msg = timestamp.decode("utf8")
+        return msg
+
+    def stop(self):
+        self.connection.close()
+        self.shutdown.set()
+        self.timer.cancel()
 
 
 class UUIDS:
@@ -106,6 +182,20 @@ class Delegate(btle.DefaultDelegate):
                                     accz = float("{0:.4f}".format(packet[6] / 8192))
 
                                     if idx == 0:
+                                        if production:
+                                            BUFFER.append(
+                                                str(yaw)
+                                                + " "
+                                                + str(pitch)
+                                                + " "
+                                                + str(roll)
+                                                + " "
+                                                + str(accx)
+                                                + " "
+                                                + str(accy)
+                                                + " "
+                                                + str(accz)
+                                            )
                                         if debug:
                                             raw_data[address].append(
                                                 (yaw, pitch, roll, accx, accy, accz)
@@ -366,8 +456,9 @@ def getDanceData(beetle):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="BLE")
+    parser = argparse.ArgumentParser(description="Internal Comms")
     parser.add_argument("--beetle_id", help="beetle id", type=int, required=True)
+    parser.add_argument("--dancer_id", help="dancer id", type=int, required=True)
     parser.add_argument("--debug", default=False, help="debug mode", type=bool)
     parser.add_argument("--collect", default=False, help="train mode", type=bool)
     parser.add_argument(
@@ -380,6 +471,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     beetle_id = args.beetle_id
+    dancer_id = args.dancer_id
     debug = args.debug
     collect = args.collect
     production = args.production
@@ -389,6 +481,7 @@ if __name__ == "__main__":
     scaler_path = args.scaler_path
 
     print("beetle_id:", beetle_id)
+    print("dancer_id:", dancer_id)
     print("debug:", debug)
     print("collect:", collect)
     print("production:", production)
@@ -397,6 +490,10 @@ if __name__ == "__main__":
     print("model_path:", model_path)
     print("scaler_path:", scaler_path)
 
+    ip_addr = "127.0.0.1"
+    port_num = PORT_NUM[dancer_id]
+    group_id = "18"
+    key = "1234123412341234"
     activities = ["dab", "gun", "elbow"]
 
     if debug:
@@ -473,20 +570,15 @@ if __name__ == "__main__":
         establish_connection(beetle3)
 
     start_time = time.time()
+    my_client = Client(ip_addr, port_num, group_id, key)
 
-    # start collecting data only after 10s passed
-    counter = 0
-    while True:
-        elapsed_time = time.time() - start_time
-        if int(elapsed_time) >= 10:
-            break
-        else:
-            print(f"Waiting for {counter}s")
-            time.sleep(1)
-            counter += 1
+    print("waiting for 10s")
+    time.sleep(10)
+    print("start")
 
-    print("Start")
     is_init = True
+    RTT = 0.0
+    offset = 0.0
     while True:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as data_executor:
             {
@@ -496,7 +588,34 @@ if __name__ == "__main__":
             if is_init:
                 raw_data[beetle2] = list()
                 is_init = False
-                print("Perform:", random.choice(activities))
+                continue
+
+            if production:
+                if len(BUFFER) > 0:
+                    raw_data = BUFFER.pop(0)
+                    t1 = time.time()
+                    message_final = (
+                        str(dancer_id)
+                        + "|"
+                        + str(RTT)
+                        + "|"
+                        + str(offset)
+                        + "|"
+                        + raw_data
+                        + "|"
+                    )
+                    if verbose:
+                        print("raw_data: " + raw_data)
+                        print("message_final: " + message_final)
+
+                    my_client.send_message(message_final)
+                    timestamp = my_client.receive_timestamp()
+                    t4 = time.time()
+                    t2 = float(timestamp.split("|")[0][:18])
+                    t3 = float(timestamp.split("|")[1][:18])
+                    RTT = t4 - t3 + t2 - t1
+                    offset = (t2 - t1) - RTT / 2
+
             if debug:
                 inputs = np.array(raw_data[beetle2])
                 n_readings = 90
@@ -537,4 +656,3 @@ if __name__ == "__main__":
                         raise Exception("Model is not supported")
                     raw_data[beetle2] = list()
                     print("Predicted:", dance_move)
-                    print("Perform:", random.choice(activities))
