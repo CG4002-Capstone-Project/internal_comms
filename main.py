@@ -7,6 +7,7 @@ import struct
 import threading
 import time
 import traceback
+import pika
 
 import numpy as np
 import torch
@@ -468,6 +469,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", help="svc or dnn model")
     parser.add_argument("--model_path", help="path to model")
     parser.add_argument("--scaler_path", help="path to scaler")
+    parser.add_argument("--cloudamqp_url", default="amqps://yjxagmuu:9i_-oo9VNSh5w4DtBxOlB6KLLOMLWlgj@mustang.rmq.cloudamqp.com/yjxagmuu", help="dashboard connection")
 
     args = parser.parse_args()
     beetle_id = args.beetle_id
@@ -479,6 +481,7 @@ if __name__ == "__main__":
     model_type = args.model_type
     model_path = args.model_path
     scaler_path = args.scaler_path
+    cloudamqp_url = args.cloudamqp_url
 
     print("beetle_id:", beetle_id)
     print("dancer_id:", dancer_id)
@@ -489,6 +492,7 @@ if __name__ == "__main__":
     print("model_type:", model_type)
     print("model_path:", model_path)
     print("scaler_path:", scaler_path)
+    print("cloudamqp_url:", cloudamqp_url)
 
     ip_addr = "127.0.0.1"
     port_num = PORT_NUM[dancer_id]
@@ -572,6 +576,18 @@ if __name__ == "__main__":
     start_time = time.time()
     my_client = Client(ip_addr, port_num, group_id, key)
 
+    logging.basicConfig()
+
+    # Parse CLODUAMQP_URL (fallback to localhost)
+    params = pika.URLParameters(cloudamqp_url)
+    params.socket_timeout = 5
+
+    connection = pika.BlockingConnection(params) # Connect to CloudAMQP
+    channel = connection.channel() # start a channel
+
+    channel.queue_declare(queue='raw_data') # Declare a queue
+    
+
     print("waiting for 10s")
     time.sleep(10)
     print("start")
@@ -610,6 +626,15 @@ if __name__ == "__main__":
                         print("message_final: " + message_final)
 
                     my_client.send_message(message_final)
+                    database_msg = (
+                        str(dancer_id) 
+                        + "|" 
+                        + str(t1)
+                        + "|"
+                        + raw_data
+                        + "|"
+                    )
+                    channel.basic_publish(exchange='', routing_key='raw_data', body=database_msg)
                     timestamp = my_client.receive_timestamp()
                     t4 = time.time()
                     t2 = float(timestamp.split("|")[0][:18])
