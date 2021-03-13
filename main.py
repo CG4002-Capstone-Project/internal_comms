@@ -455,7 +455,7 @@ if __name__ == "__main__":
     port_num = PORT_NUM[dancer_id]
     group_id = "18"
     key = "1234123412341234"
-    activities = ["dab", "gun", "elbow"]
+    activities = ["gun", "sidepump", "hair"]
 
     if debug:
         # Load scaler
