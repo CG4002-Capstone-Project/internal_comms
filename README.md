@@ -6,18 +6,26 @@ pip install -r requirements.txt
 ```
 
 ## Run 
-- Run in with model in debug mode
+- Run to print statements
+```
+python3 main.py --beetle_id 2 --dancer_id 0 --verbose True
+```
+- Run with model 
 ```
 python3 main.py --beetle_id 2 --dancer_id 0 --debug True --model_type dnn --model_path ./dnn_model.pth --scaler_path ./dnn_std_scaler.bin
 python3 main.py --beetle_id 2 --dancer_id 0 --debug True --model_type svc --model_path ./svc_model.sav --scaler_path ./svc_std_scaler.bin
 ```
-- Collect data in train model
+- Run with dashboard
+```
+python3 main.py --beetle_id 2 --dancer_id 0 --debug True --model_type dnn --model_path ./dnn_model.pth --scaler_path ./dnn_std_scaler.bin --production True --dashboard True
+```
+- Collect data 
 ```
 python3 main.py --beetle_id 2 --dancer_id 0 --collect True --verbose True
 ```
-- Run in production mode
+- Run in production
 ```
-python3 main.py --beetle_id 2 --dancer_id 0 --production True
+python3 main.py --beetle_id 2 --dancer_id 0 --production True --ultra96 True --dashboard True 
 ```
 
 ## Linting

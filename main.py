@@ -9,6 +9,7 @@ import time
 import traceback
 
 import numpy as np
+import pika
 import torch
 from bluepy import btle
 from Crypto import Random
@@ -345,10 +346,14 @@ def initHandshake(beetle):
                             )
                             break
 
+                except btle.BTLEDisconnectError:
+                    global_beetle[beetle.addr] = 0
+                    reestablish_connection(beetle)
+
                 except Exception:
                     print(traceback.format_exc())
-                    establish_connection(beetle.addr)
-                    return
+                    global_beetle[beetle.addr] = 0
+                    reestablish_connection(beetle)
 
 
 def establish_connection(address):
@@ -357,11 +362,9 @@ def establish_connection(address):
             for idx in range(len(beetle_addresses)):
                 # for initial connections or when any beetle is disconnected
                 if beetle_addresses[idx] == address:
-                    if global_beetle[idx] != 0:  # disconnect before reconnect
-                        global_beetle[idx]._stopHelper()
-                        global_beetle[idx].disconnect()
-                        global_beetle[idx] = 0
-                    if global_beetle[idx] == 0: # just stick with if instead of else
+                    if global_beetle[idx] != 0:  # do not reconnect if already connected
+                        return
+                    else:
                         print("connecting with %s" % (address))
                         # creates a Peripheral object and makes a connection to the device
                         beetle = btle.Peripheral(address)
@@ -378,8 +381,45 @@ def establish_connection(address):
                         return
         except Exception:
             print(traceback.format_exc())
-            establish_connection(address)
-            return
+            for idx in range(len(beetle_addresses)):
+                # for initial connections or when any beetle is disconnected
+                if beetle_addresses[idx] == address:
+                    if global_beetle[idx] != 0:  # do not reconnect if already connected
+                        return
+
+
+def reestablish_connection(beetle):
+
+    disconnected_devices = 0
+
+    for idx in range(len(global_beetle)):
+        if global_beetle[idx] == 0:
+            disconnected_devices += 1
+
+    while True:
+
+        try:
+            if disconnected_devices == 3:
+                devices = scanner.scan(2)
+                for d in devices:
+                    if d.addr in beetle_addresses:
+                        establish_connection(d.addr)
+
+            else:
+                print("reconnecting to %s" % (beetle.addr))
+                try:
+                    Peripheral(beetle.addr).disconnect()
+                except Exception:
+                    print(traceback.format_exc())
+
+                establish_connection(beetle.addr)
+                print("re-connected to %s" % (beetle.addr))
+                return
+
+        except:
+            time.sleep(1)
+
+    # total_connected_devices += 1
 
 
 def calculate_clock_offset(beetle_timestamp_list):
@@ -407,13 +447,13 @@ def getDanceData(beetle):
                 waitCount += 1
                 if waitCount >= 10:
                     waitCount = 0
-                    establish_connection(beetle.addr)
-                    return
+                    global_beetle[beetle.addr] = 0
+                    reestablish_connection(beetle)
 
         except Exception:
             print(traceback.format_exc())
-            establish_connection(beetle.addr)
-            return
+            global_beetle[beetle.addr] = 0
+            reestablish_connection(beetle)
 
 
 if __name__ == "__main__":
@@ -425,10 +465,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--production", default=False, help="production mode", type=bool
     )
+    parser.add_argument(
+        "--dashboard", default=False, help="send to dashboard", type=bool
+    )
+    parser.add_argument("--ultra96", default=False, help="send to ultra96", type=bool)
     parser.add_argument("--verbose", default=False, help="verbose", type=bool)
     parser.add_argument("--model_type", help="svc or dnn model")
     parser.add_argument("--model_path", help="path to model")
     parser.add_argument("--scaler_path", help="path to scaler")
+    parser.add_argument(
+        "--cloudamqp_url",
+        default="amqps://yjxagmuu:9i_-oo9VNSh5w4DtBxOlB6KLLOMLWlgj@mustang.rmq.cloudamqp.com/yjxagmuu",
+        help="dashboard connection",
+    )
 
     args = parser.parse_args()
     beetle_id = args.beetle_id
@@ -436,10 +485,13 @@ if __name__ == "__main__":
     debug = args.debug
     collect = args.collect
     production = args.production
+    dashboard = args.dashboard
+    ultra96 = args.ultra96
     verbose = args.verbose
     model_type = args.model_type
     model_path = args.model_path
     scaler_path = args.scaler_path
+    cloudamqp_url = args.cloudamqp_url
 
     print("beetle_id:", beetle_id)
     print("dancer_id:", dancer_id)
@@ -450,6 +502,7 @@ if __name__ == "__main__":
     print("model_type:", model_type)
     print("model_path:", model_path)
     print("scaler_path:", scaler_path)
+    print("cloudamqp_url:", cloudamqp_url)
 
     ip_addr = "127.0.0.1"
     port_num = PORT_NUM[dancer_id]
@@ -531,8 +584,18 @@ if __name__ == "__main__":
         establish_connection(beetle3)
 
     start_time = time.time()
-    if production:
+
+    if production and ultra96:
         my_client = Client(ip_addr, port_num, group_id, key)
+
+    # Parse CLODUAMQP_URL (fallback to localhost)
+    params = pika.URLParameters(cloudamqp_url)
+    params.socket_timeout = 5
+
+    connection = pika.BlockingConnection(params)  # Connect to CloudAMQP
+    channel = connection.channel()  # start a channel
+
+    channel.queue_declare(queue="raw_data")  # Declare a queue
 
     print("waiting for 10s")
     time.sleep(10)
@@ -552,32 +615,41 @@ if __name__ == "__main__":
                 raw_data[target_beetle] = list()
                 is_init = False
                 continue
-
             if production:
                 if len(BUFFER) > 0:
-                    raw_data = BUFFER.pop(0)
+                    current_data = BUFFER.pop(0)
                     t1 = time.time()
-                    message_final = (
-                        str(dancer_id)
-                        + "|"
-                        + str(RTT)
-                        + "|"
-                        + str(offset)
-                        + "|"
-                        + raw_data
-                        + "|"
-                    )
-                    if verbose:
-                        print("raw_data: " + raw_data)
-                        print("message_final: " + message_final)
+                    if dashboard:
+                        database_msg = (
+                            str(dancer_id) + "|" + str(t1) + "|" + current_data + "|"
+                        )
+                        channel.basic_publish(
+                            exchange="", routing_key="raw_data", body=database_msg
+                        )
+                        if verbose:
+                            print(database_msg)
+                    if ultra96:
+                        message_final = (
+                            str(dancer_id)
+                            + "|"
+                            + str(RTT)
+                            + "|"
+                            + str(offset)
+                            + "|"
+                            + current_data
+                            + "|"
+                        )
+                        if verbose:
+                            print("current_data: " + current_data)
+                            print("message_final: " + message_final)
 
-                    my_client.send_message(message_final)
-                    timestamp = my_client.receive_timestamp()
-                    t4 = time.time()
-                    t2 = float(timestamp.split("|")[0][:18])
-                    t3 = float(timestamp.split("|")[1][:18])
-                    RTT = t4 - t3 + t2 - t1
-                    offset = (t2 - t1) - RTT / 2
+                        my_client.send_message(message_final)
+                        timestamp = my_client.receive_timestamp()
+                        t4 = time.time()
+                        t2 = float(timestamp.split("|")[0][:18])
+                        t3 = float(timestamp.split("|")[1][:18])
+                        RTT = t4 - t3 + t2 - t1
+                        offset = (t2 - t1) - RTT / 2
 
             if debug:
                 inputs = np.array(raw_data[target_beetle])
