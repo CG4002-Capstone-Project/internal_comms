@@ -531,7 +531,8 @@ if __name__ == "__main__":
         establish_connection(beetle3)
 
     start_time = time.time()
-    my_client = Client(ip_addr, port_num, group_id, key)
+    if production:
+        my_client = Client(ip_addr, port_num, group_id, key)
 
     print("waiting for 10s")
     time.sleep(10)
