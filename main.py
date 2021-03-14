@@ -4,6 +4,7 @@ import concurrent
 import json
 import socket
 import struct
+import sys
 import threading
 import time
 import traceback
@@ -346,8 +347,8 @@ def initHandshake(beetle):
                             )
                             break
                 except KeyboardInterrupt:
-                   print(traceback.format_exc())
-                   if global_beetle[0] != 0:  # disconnect 
+                    print(traceback.format_exc())
+                    if global_beetle[0] != 0:  # disconnect
                         global_beetle[0]._stopHelper()
                         global_beetle[0].disconnect()
                         global_beetle[0] = 0
@@ -368,7 +369,7 @@ def establish_connection(address):
                         global_beetle[idx]._stopHelper()
                         global_beetle[idx].disconnect()
                         global_beetle[idx] = 0
-                    if global_beetle[idx] == 0: # just stick with if instead of else
+                    if global_beetle[idx] == 0:  # just stick with if instead of else
                         print("connecting with %s" % (address))
                         # creates a Peripheral object and makes a connection to the device
                         beetle = btle.Peripheral(address)
@@ -384,7 +385,7 @@ def establish_connection(address):
                         return
         except KeyboardInterrupt:
             print(traceback.format_exc())
-            if global_beetle[0] != 0:  # disconnect 
+            if global_beetle[0] != 0:  # disconnect
                 global_beetle[0]._stopHelper()
                 global_beetle[0].disconnect()
                 global_beetle[0] = 0
@@ -393,6 +394,7 @@ def establish_connection(address):
             print(traceback.format_exc())
             establish_connection(address)
             return
+
 
 def calculate_clock_offset(beetle_timestamp_list):
     print("calculating Offset")
@@ -424,12 +426,11 @@ def getDanceData(beetle):
 
         except KeyboardInterrupt:
             print(traceback.format_exc())
-            if global_beetle[0] != 0:  # disconnect 
+            if global_beetle[0] != 0:  # disconnect
                 global_beetle[0]._stopHelper()
                 global_beetle[0].disconnect()
                 global_beetle[0] = 0
             sys.exit()
-
         except Exception:
             print(traceback.format_exc())
             establish_connection(beetle.addr)
