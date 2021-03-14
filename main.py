@@ -139,7 +139,7 @@ class Delegate(btle.DefaultDelegate):
                             if verbose:
                                 print(packet)
                         # imu data packet
-                        elif packetType > 0:
+                        elif packetType > 0 and allow_imu_data_flag[address] == True:
                             packet = struct.unpack("<hhhhhhhhhh", packet)
                             packetUnpacked = True
                             if verbose:
@@ -175,6 +175,7 @@ class Delegate(btle.DefaultDelegate):
                         elif packet[0] > 0:
                             if verifychecksum(packet) is True:
                                 try:
+                                    detectionFlag = packet[0]
                                     yaw = float("{0:.2f}".format(packet[1] / 100))
                                     pitch = float("{0:.2f}".format(packet[2] / 100))
                                     roll = float("{0:.2f}".format(packet[3] / 100))
@@ -185,7 +186,9 @@ class Delegate(btle.DefaultDelegate):
                                     if idx == 0:
                                         if production:
                                             BUFFER.append(
-                                                str(yaw)
+                                                str(detectionFlag) 
+                                                + " "
+                                                + str(yaw)
                                                 + " "
                                                 + str(pitch)
                                                 + " "
@@ -199,7 +202,7 @@ class Delegate(btle.DefaultDelegate):
                                             )
                                         if debug:
                                             raw_data[address].append(
-                                                (yaw, pitch, roll, accx, accy, accz)
+                                                (detectionFlag, yaw, pitch, roll, accx, accy, accz)
                                             )
                                         if collect:
                                             with open(r"data1.txt", "a") as file:
@@ -354,6 +357,7 @@ def initHandshake(beetle):
                     sys.exit()
                 except Exception:
                     print(traceback.format_exc())
+                    allow_imu_data_flag[beetle.addr] = False
                     establish_connection(beetle.addr)
                     return
 
@@ -380,6 +384,7 @@ def establish_connection(address):
                         beetle.withDelegate(beetle_delegate)
                         # total_connected_devices += 1
                         initHandshake(beetle)
+                        allow_imu_data_flag[address] = True
                         print("Connected to %s" % (address))
                         return
         except KeyboardInterrupt:
@@ -391,6 +396,7 @@ def establish_connection(address):
             sys.exit()
         except Exception:
             print(traceback.format_exc())
+            allow_imu_data_flag[address] = False
             establish_connection(address)
             return
 
@@ -419,6 +425,7 @@ def getDanceData(beetle):
                 waitCount += 1
                 if waitCount >= 10:
                     waitCount = 0
+                    allow_imu_data_flag[beetle.addr] = False
                     establish_connection(beetle.addr)
                     return
 
@@ -432,6 +439,7 @@ def getDanceData(beetle):
 
         except Exception:
             print(traceback.format_exc())
+            allow_imu_data_flag[beetle.addr] = False
             establish_connection(beetle.addr)
             return
 
@@ -540,6 +548,11 @@ if __name__ == "__main__":
         beetle1: [],
         beetle2: [],
         beetle3: [],
+    }
+    allow_imu_data_flag = {
+        beetle1: False,
+        beetle2: False,
+        beetle3: False,
     }
     buffer = {
         beetle1: b"",
