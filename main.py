@@ -173,9 +173,10 @@ class Delegate(btle.DefaultDelegate):
                                     )
                                     file.close()
 
-                        elif packet[0] > 0:
+                        elif (packet[0] > 0) and (allow_imu[address] == True):
                             if verifychecksum(packet) is True:
                                 try:
+                                    mode = packet[0]
                                     yaw = float("{0:.2f}".format(packet[1] / 100))
                                     pitch = float("{0:.2f}".format(packet[2] / 100))
                                     roll = float("{0:.2f}".format(packet[3] / 100))
@@ -186,7 +187,9 @@ class Delegate(btle.DefaultDelegate):
                                     if idx == 0:
                                         if production:
                                             BUFFER.append(
-                                                str(yaw)
+                                                str(mode)
+                                                + " "
+                                                + str(yaw)
                                                 + " "
                                                 + str(pitch)
                                                 + " "
@@ -200,7 +203,15 @@ class Delegate(btle.DefaultDelegate):
                                             )
                                         if debug:
                                             raw_data[address].append(
-                                                (yaw, pitch, roll, accx, accy, accz)
+                                                (
+                                                    mode,
+                                                    yaw,
+                                                    pitch,
+                                                    roll,
+                                                    accx,
+                                                    accy,
+                                                    accz,
+                                                )
                                             )
                                         if collect:
                                             with open(r"data1.txt", "a") as file:
@@ -360,6 +371,8 @@ def initHandshake(beetle):
 
 
 def establish_connection(address):
+    allow_imu[address] = False
+    # BUFFER = [] TODO: Riyas
     while True:
         try:
             for idx in range(len(beetle_addresses)):
@@ -382,6 +395,7 @@ def establish_connection(address):
                         # total_connected_devices += 1
                         initHandshake(beetle)
                         print("Connected to %s" % (address))
+                        allow_imu[address] = True
                         return
         except KeyboardInterrupt:
             print(traceback.format_exc())
@@ -526,6 +540,11 @@ if __name__ == "__main__":
 
     # used to notify if sync data is available
     clocksync_flag_dict = {
+        beetle1: False,
+        beetle2: False,
+        beetle3: False,
+    }
+    allow_imu = {
         beetle1: False,
         beetle2: False,
         beetle3: False,
