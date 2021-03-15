@@ -179,7 +179,7 @@ class Delegate(btle.DefaultDelegate):
                                     meanfreq = float("{0:.2f}".format(packet[3] / 100))
                                     
 
-                                    BUFFER.append(str(mav))
+                                    BUFFER.append(str(mav) + " " + str(rms) + " " + str(meanfreq))
 
                                     if (idx == 0):
 
@@ -335,20 +335,8 @@ def calculate_clock_offset(beetle_timestamp_list):
 def getDanceData(beetle):
     
     print ("time for imu data")
-    #print ("1")
-
-    #for characteristic in beetle.getCharacteristics():
-    #    print ("2")
-
-    #    if characteristic.uuid == UUIDS.SERIAL_COMMS:
-            #laptop_sending_timestamp = 1
-            #timestamp_dict[beetle.addr].append(laptop_sending_timestamp)
-            # characteristic.write(bytes('H', 'UTF-8'), withResponse=False)
-    #        print ("char sent")
             
     waitCount = 0
-
-    #print ("3")
 
     while True:
         
@@ -457,6 +445,8 @@ if __name__ == '__main__':
 
                 if len(BUFFER) > 0:
                     database_emg_data = BUFFER.pop(0)
+                    print("data for DB...")
+                    print(database_emg_data)
                     t1 = time.time()
                     emg_data = (
                     
