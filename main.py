@@ -68,7 +68,7 @@ class Client(threading.Thread):
         encrypted_message = base64.b64encode(
             iv + cipher.encrypt(bytes(padded_raw_message, "utf8"))
         )
-        # print("encrypted_message: ", encrypted_message)
+        print("encrypted_message: ", encrypted_message)
         return encrypted_message
 
     # To send the message to the sever
@@ -616,8 +616,11 @@ if __name__ == "__main__":
                 is_init = False
                 continue
             if production:
-                if len(BUFFER) > 0:
-                    current_data = BUFFER.pop(0)
+                print(len(BUFFER))
+                if len(BUFFER) >= 8:
+                    # current_data = BUFFER.pop(0)
+                    current_data = "#".join(BUFFER)
+                    BUFFER = list()
                     t1 = time.time()
                     if dashboard:
                         database_msg = (
@@ -662,12 +665,12 @@ if __name__ == "__main__":
                     inputs = np.array(
                         [
                             [
-                                inputs[:, 0],
                                 inputs[:, 1],
                                 inputs[:, 2],
                                 inputs[:, 3],
                                 inputs[:, 4],
                                 inputs[:, 5],
+                                inputs[:, 6],
                             ]
                         ]
                     )
