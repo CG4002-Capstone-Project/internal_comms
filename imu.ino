@@ -226,8 +226,7 @@ struct TimePacket
   long sent;
   int padding2;
   int padding3;
-  int padding4;
-  int padding5;
+  long checksum;
 };
 
 // ================================================================
@@ -366,8 +365,7 @@ void setup()
         packet.sent = tmp_send_timestamp;
         packet.padding2 = 0;
         packet.padding3 = 0;
-        packet.padding4 = 0;
-        packet.padding5 = 0;
+        packet.checksum = getTimeChecksum(packet);
 
         //char buffer1[20];
         //memcpy(buffer1, packet, 20);
@@ -759,7 +757,10 @@ int getChecksum(DataPacket packet)
 
 void sendData()
 {
-
+  if (count < 90)
+  {
+    count += 1;
+  }
   unsigned long tmp_recv_timestamp = 0;
   unsigned long tmp_send_timestamp = 0;
   if (Serial.available())
@@ -777,14 +778,13 @@ void sendData()
       packet.sent = tmp_send_timestamp;
       packet.padding2 = 0;
       packet.padding3 = 0;
-      packet.padding4 = 0;
-      packet.padding5 = 0;
+      packet.checksum = getTimeChecksum(packet);
 
       Serial.write((uint8_t *)&packet, sizeof(packet));
     }
   }
-
-  if (isReadyToSendData)
+  // else if (msg == 'A') {
+  if (isReadyToSendData && count > 80)
   {
     DataPacket packet;
     packet.type = 1;
@@ -800,4 +800,10 @@ void sendData()
 
     Serial.write((uint8_t *)&packet, sizeof(packet));
   }
+}
+
+long getTimeChecksum(TimePacket packet)
+{
+  return packet.type ^ packet.padding1 ^ packet.rec ^ packet.sent ^
+         packet.padding2 ^ packet.padding3;
 }
